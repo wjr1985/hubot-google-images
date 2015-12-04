@@ -7,6 +7,7 @@
 #   HUBOT_MUSTACHIFY_URL - Optional. Allow you to use your own mustachify instance.
 #   HUBOT_GOOGLE_IMAGES_HEAR - Optional. If set, bot will respond to any line that begins with "image me" or "animate me" without needing to address the bot directly
 #   HUBOT_GOOGLE_SAFE_SEARCH - Optional. Search safety level.
+#   HUBOT_BING_API_KEY - Optional. Your Bing API key if you want to use that as a fallback.
 #
 # Commands:
 #   hubot image me <query> - The Original. Queries Google Images for <query> and returns a random top result.
@@ -79,14 +80,17 @@ imageMe = (msg, query, animated, faces, cb) ->
       .get() (err, res, body) ->
         if err
           if res.statusCode is 403
-            msg.send "Daily image quota exceeded, using alternate source."
-            deprecatedImage(msg, query, animated, faces, cb)
+            msg.send "Daily image quota exceeded, using Bing search."
+            bingImageSearch(msg, query, animated, faces, cb)
           else
             msg.send "Encountered an error :( #{err}"
           return
         if res.statusCode isnt 200
           msg.send "Bad HTTP response :( #{res.statusCode}"
           return
+        console.log res
+        console.log "--------------"
+        console.log body
         response = JSON.parse(body)
         if response?.items
           image = msg.random response.items
@@ -99,7 +103,7 @@ imageMe = (msg, query, animated, faces, cb) ->
               .error "(see #{error.extendedHelp})" if error.extendedHelp
           ) error for error in response.error.errors if response.error?.errors
   else
-    deprecatedImage(msg, query, animated, faces, cb)
+    bingImageSearch(msg, query, animated, faces,cb)
 
 deprecatedImage = (msg, query, animated, faces, cb) ->
   # Using deprecated Google image search API
@@ -130,6 +134,37 @@ deprecatedImage = (msg, query, animated, faces, cb) ->
         cb ensureResult(image.unescapedUrl, animated)
       else
         msg.send "Sorry, I found no results for '#{query}'."
+
+bingImageSearch = (msg, query, animated, faces, cb) ->
+  # Using Bing Search API for images
+  bingApiKey = process.env.HUBOT_BING_API_KEY
+  if !bingApiKey
+    msg.robot.logger.error "Missing environment variable HUBOT_BING_API_KEY"
+    msg.send "Missing server environment variable HUBOT_BING_API_KEY"
+    return
+  q =
+    $format: 'json',
+    Query: "'#{query}'",
+    Adult: "'Strict'"
+
+  encoded_key = new Buffer("#{bingApiKey}:#{bingApiKey}").toString("base64")
+  url = "https://api.datamarket.azure.com/Bing/Search/Image"
+  msg.http(url)
+    .query(q)
+    .header("Authorization", "Basic #{encoded_key}")
+    .get() (err, res, body) ->
+      if err
+        if res.statusCode is 403
+          msg.send "Monthly Bing image quota exceeded. Please wait until tomorrow to search for more images."
+        else
+          msg.send "Encountered an error :( #{err}"
+        return
+      response = JSON.parse(body)
+      if response?.d && response.d.results
+        image = msg.random response.d.results
+        cb ensureResult(image.MediaUrl, animated)
+      else
+        msg.send "Oops. I had trouble searching '#{query}'. Try later."
 
 # Forces giphy result to use animated version
 ensureResult = (url, animated) ->
