@@ -88,9 +88,6 @@ imageMe = (msg, query, animated, faces, cb) ->
         if res.statusCode isnt 200
           msg.send "Bad HTTP response :( #{res.statusCode}"
           return
-        console.log res
-        console.log "--------------"
-        console.log body
         response = JSON.parse(body)
         if response?.items
           image = msg.random response.items
